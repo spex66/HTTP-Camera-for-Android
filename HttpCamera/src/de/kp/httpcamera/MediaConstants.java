@@ -1,4 +1,4 @@
-package de.kp.net;
+package de.kp.httpcamera;
 
 public class MediaConstants {
 

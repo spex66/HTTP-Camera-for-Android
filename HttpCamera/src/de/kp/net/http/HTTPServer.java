@@ -9,7 +9,7 @@ import java.net.Socket;
 import java.util.Date;
 import java.util.Scanner;
 
-import de.kp.net.HttpCamera;
+import de.kp.httpcamera.HttpCamera;
 
 import android.content.Context;
 import android.util.Log;
@@ -50,6 +50,15 @@ public class HTTPServer implements Runnable {
 		}
 
 	}
+	
+
+	/**
+	 * This method is used to stop the HTTP server
+	 */
+	public void stop() {
+		this.stopped = true;
+	}
+	
 	
 	private class ServerThread extends Thread {
 		
@@ -121,7 +130,7 @@ public class HTTPServer implements Runnable {
 		 */
 		public void sendResponse(DataOutputStream out) throws Exception {
 
-			Log.d(TAG , "sendResponse strated");
+			Log.d(TAG , "sendResponse started");
 			
 			// build header
 			StringBuffer sb = new StringBuffer();
