@@ -16,7 +16,7 @@ import android.util.Log;
 
 public class HTTPServer implements Runnable {
 
-	private static String SERVER_PORT = "8080";
+	private static int SERVER_PORT = 8080;
 
 	// indicator to determine whether the
 	// server has stopped or not
@@ -26,13 +26,13 @@ public class HTTPServer implements Runnable {
 
 	private Context context;
 
-	public HTTPServer(Context context) throws IOException {
-		
-		this.context = context;
+	public HTTPServer(Context context) throws IOException {		
+		this(context, SERVER_PORT);
+	}
 
-		int port = Integer.parseInt(SERVER_PORT);
+	public HTTPServer(Context context, int port) throws IOException {		
+		this.context = context;
 		serverSocket = new ServerSocket(port);
-	
 	}
 
 	public void run() {
@@ -81,37 +81,41 @@ public class HTTPServer implements Runnable {
 			try {
 
 				// Streams to communicate with the client
-				BufferedReader in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
-				DataOutputStream out = new DataOutputStream(clientSocket.getOutputStream());
+				BufferedReader requestStream = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+				DataOutputStream responseStream = new DataOutputStream(clientSocket.getOutputStream());
 
 				// Read the HTTP request from the client
-				String requestLine = in.readLine();
+				String requestLine = requestStream.readLine();
 
 				Scanner sc = new Scanner(requestLine);
 
 				String method = sc.next();
 				String requestFileName = sc.next();
 
+				/*
+				 * This HTTP server is dedicated to exclusively support Motion JPEG
+				 * streaming. The user may request a generic answer from the server
+				 * by NOT providing a request file name; otherwise always the streaming
+				 * result of the camera is sent.
+				 * 
+				 */
+				
 				if (method.equals("GET")) {
 
 					if (requestFileName.equals("/")) {
 
 						// The default home page
-						sendDefaultResponsePage(out);
-
-						// to open any default file like index.html , call
-						// sendResponse(out, 200, "index.html",this.ctMap);
-						out.close();
+						sendDefaultResponsePage(responseStream);
+						responseStream.close();
 
 					} else {
 
-						// removes / from the file name
-						sendResponse(out);
+						sendResponse(responseStream);
 
 					}
 
 				} else
-					sendErrorResponse(out, 500, "<b>Method  not found</b>");
+					sendErrorResponse(responseStream, 500, "<b>Method  not found</b>");
 
 			} catch (Exception e) {
 				e.printStackTrace();
@@ -119,18 +123,33 @@ public class HTTPServer implements Runnable {
 			}
 		}
 
+		public void sendResponse(DataOutputStream responseStream) throws Exception {
+		
+			if (((HttpCamera) context).isReady()) {
+				sendMJPEGResponse(responseStream);
+			
+			} else {
+
+				// the camera is actually not ready; in this case, we send
+				// a standy picture
+				sendStandByResponse(responseStream);
+			
+			}
+		
+		}
+		
 		/**
 		 * This method sends the content of a file to the requestor.
 		 * 
-		 * @param out
+		 * @param responseStream
 		 * @param statusCode
 		 * @param fileName
 		 * @param contentTypes
 		 * @throws Exception
 		 */
-		public void sendResponse(DataOutputStream out) throws Exception {
-
-			Log.d(TAG , "sendResponse started");
+		public void sendMJPEGResponse(DataOutputStream responseStream) throws Exception {
+			
+			Log.d(TAG , "sendMJPEGResponse started");
 			
 			// build header
 			StringBuffer sb = new StringBuffer();
@@ -149,28 +168,66 @@ public class HTTPServer implements Runnable {
 			sb.append("Content-Type: multipart/x-mixed-replace; ");
 			sb.append("boundary=--KruscheUndPartnerPartG\r\n\r\n");
 
-			out.write(sb.toString().getBytes());
+			responseStream.write(sb.toString().getBytes());
 
 			while (true) {
+			
 				byte[] image = ((HttpCamera) context).getByteArray();
 
 				if (image == null)
 					break;
+				
 				else {
+				
 					Log.d(TAG , "sendResponse streaming");
 					
-					out.writeBytes("--KruscheUndPartnerPartG\r\n");
-					out.writeBytes("Content-Type: image/jpeg\r\n\r\n");
-					out.write(image);
-					out.writeBytes("\r\n\r\n");				
-					out.flush();
+					responseStream.writeBytes("--KruscheUndPartnerPartG\r\n");
+					responseStream.writeBytes("Content-Type: image/jpeg\r\n\r\n");
+					
+					responseStream.write(image);
+					
+					responseStream.writeBytes("\r\n\r\n");				
+					responseStream.flush();
 				}
 			}
+
 			Log.d(TAG , "sendResponse stopped");
-			out.close();
+			responseStream.close();
 
 		}
 
+		/**
+		 * This method returns a standby image in case
+		 * of camera is not ready for streaming.
+		 * 
+		 * @param responseStream
+		 * @throws Exception
+		 */
+		public void sendStandByResponse(DataOutputStream responseStream) throws Exception {
+			
+			Log.d(TAG , "sendStandByResponse started");
+			
+			// build header
+			StringBuffer sb = new StringBuffer();
+
+			sb.append("HTTP/1.0 200 OK\r\n");
+			sb.append("Server: Android\r\n");
+
+			sb.append("Content-Type: image/jpeg\r\n");
+			
+			byte[] image = ((HttpCamera) context).getStandByImage();
+			int len = (image == null) ? 0 : image.length;
+			 
+			sb.append("Content-Length: " + len + "\r\n");
+
+			responseStream.write(sb.toString().getBytes());
+			responseStream.write(image);
+
+			responseStream.flush();
+			responseStream.close();
+
+		}
+		
 		/**
 		 * @param out
 		 * @param statusCode
@@ -185,8 +242,8 @@ public class HTTPServer implements Runnable {
 		private void sendDefaultResponsePage(DataOutputStream out) throws IOException {
 
 			StringBuffer sb = new StringBuffer();
-			sb.append("<h1><div align='center'><b>Java Http Server Version 1.0 </b></div></h1>");
-			sb.append("<h2><div align='center'><b>Welcome to Own Webserver  built in java </b></div></h2>");
+			sb.append("<h1><div align='center'><b>Android Http Server Version 1.0 </b></div></h1>");
+			sb.append("<h2><div align='center'><b>Welcome to Android Webserver built in java </b></div></h2>");
 
 			sendResponseHeader(out, 200, "text/html", sb.length());
 

@@ -2,8 +2,10 @@ package de.kp.httpcamera;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 
 import android.app.Activity;
+import android.content.res.Resources;
 import android.graphics.ImageFormat;
 import android.graphics.Rect;
 import android.graphics.YuvImage;
@@ -23,15 +25,17 @@ public class HttpCamera extends Activity {
 
 	private String TAG = "HTTPCamera";
 	private Camera camera;
-	protected boolean videoQualityHigh = false;
 
 	private YuvImage lastYuvImage;
 
 	private boolean inPreview = false;
 	private boolean cameraConfigured = false;
 
-	private int mPreviewWidth = Integer.valueOf(MediaConstants.WIDTH);
+	private int cameraQuality = 90;
+	
+	private int mPreviewWidth  = Integer.valueOf(MediaConstants.WIDTH);
 	private int mPreviewHeight = Integer.valueOf(MediaConstants.HEIGHT);
+
 	private HTTPServer streamer = null;
 
 	@Override
@@ -66,15 +70,14 @@ public class HttpCamera extends Activity {
 		/*
 		 * Starts the HTTP Server
 		 */
-		// default HTTP port is 80
 		try {
 			streamer = new HTTPServer(this);
 			new Thread(streamer).start();
 
 		} catch (IOException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
+
 		Log.d(TAG, "HttpServer started");
 
 		camera = Camera.open();
@@ -90,11 +93,10 @@ public class HttpCamera extends Activity {
 		// stop HTTP server
 		if (streamer != null)
 			streamer.stop();
+
 		streamer = null;
-
-
-
 		super.onPause();
+
 	}
 
 	/*
@@ -151,6 +153,7 @@ public class HttpCamera extends Activity {
 	};
 
 	private void startPreview() {
+
 		if (cameraConfigured && camera != null) {
 			
 			// activate onPreviewFrame()
@@ -158,13 +161,18 @@ public class HttpCamera extends Activity {
 			
 			camera.startPreview();
 			inPreview = true;
+
 		}
 	}
 
-	/*
-	 * Check availability of camera and preview
+	/**
+	 * This method checks availability of camera and preview
+	 * 
+	 * @param width
+	 * @param height
 	 */
 	private void initializePreview(int width, int height) {
+
 		if (camera != null && previewHolder.getSurface() != null) {
 			try {
 				// provide SurfaceView for camera preview
@@ -175,52 +183,111 @@ public class HttpCamera extends Activity {
 			}
 
 			if (!cameraConfigured) {
-				Camera.Parameters parameters = camera.getParameters();
 
+				Camera.Parameters parameters = camera.getParameters();
 				parameters.setPreviewSize(MediaConstants.WIDTH, MediaConstants.HEIGHT);
+				
 				camera.setParameters(parameters);
 				cameraConfigured = true;
+			
 			}
 		}
 	}
 
-	/*
-	 * SurfaceHolder callback triple
-	 */
 	Camera.PreviewCallback cameraPreviewCallback = new Camera.PreviewCallback() {
-		@Override
+		
+		/* 
+		 * This method registers the last preview frame for Motion JPEG streaming
+		 * 
+		 * (non-Javadoc)
+		 * @see android.hardware.Camera.PreviewCallback#onPreviewFrame(byte[], android.hardware.Camera)
+		 */
 		public void onPreviewFrame(byte[] data, Camera camera) {
-
-			// Camera.Parameters parameters = camera.getParameters();
-			// int format = parameters.getPreviewFormat();
-			// if (format == ImageFormat.NV21 /*|| format == ImageFormat.YUY2 ||
-			// format == ImageFormat.NV16*/)
-
 			lastYuvImage = new YuvImage(data, ImageFormat.NV21, mPreviewWidth, mPreviewHeight, null);
+		
 		}
+
 	};
 
+	
+	/**
+	 * This method converts the last preview frame from Motion JPEG
+	 * streaming into a byte array; these bytes are used by the web
+	 * server and added to the http response
+	 *  
+	 * @return
+	 */
 	public byte[] getByteArray() {
 
 		if (lastYuvImage == null)
 			return null;
-		else {
-			ByteArrayOutputStream stream = new ByteArrayOutputStream();
-			// store last preview frame for Motion JPEG streaming
-			Rect rect = new Rect(0, 0, mPreviewWidth, mPreviewHeight);
-			lastYuvImage.compressToJpeg(rect, 60, stream);
 
-			byte[] ba = null;
+		else {
+		
+			ByteArrayOutputStream stream = new ByteArrayOutputStream();
+
+			Rect rect = new Rect(0, 0, mPreviewWidth, mPreviewHeight);
+			lastYuvImage.compressToJpeg(rect, cameraQuality, stream);
+
+			byte[] bytes = null;
+
 			try {
-				ba = stream.toByteArray();
+				bytes = stream.toByteArray();
 				stream.close();
+
 			} catch (IOException e) {
-				// TODO Auto-generated catch block
 				e.printStackTrace();
+				
 			}
-			return ba;
+
+			return bytes;
 
 		}
+	}
+	
+	public byte[] getStandByImage() {
+		
+		// TODO
+		int standByID = 0;
+		
+		Resources resources = this.getResources();
+		InputStream image = resources.openRawResource(standByID);
+  
+        // create a buffer that has the same size as the inputstream  
+        byte[] buffer = null;
+        
+		try {
+			
+			buffer = new byte[image.available()];
+
+			// read the text file as a stream, into the buffer  
+	        image.read(buffer);  
+	        
+	        // create a output stream to write the buffer into  
+	        ByteArrayOutputStream stream = new ByteArrayOutputStream();  
+
+	        // write this buffer to the output stream  
+	        stream.write(buffer);  
+
+			byte[] bytes = stream.toByteArray();
+
+	        // close the Input and Output streams  
+	        stream.close();  
+	        image.close();  
+		
+	        return bytes;
+	        
+		} catch (IOException e) {
+			e.printStackTrace();
+
+		}  
+		
+		return null;
+
+	}
+	
+	public boolean isReady() {
+		return this.inPreview;
 	}
 
 }
