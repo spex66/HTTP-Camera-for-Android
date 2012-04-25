@@ -17,7 +17,6 @@ import de.kp.httpcamera.HttpCamera;
 
 public class HTTPServer implements Runnable {
 	
-
 	private static int SERVER_PORT = 8080;
 
 	// indicator to determine whether the
@@ -39,7 +38,9 @@ public class HTTPServer implements Runnable {
 	}
 
 	public HTTPServer(Context context, int port) throws IOException {		
+
 		this.context = context;
+		
 		this.serverThreads = new Vector<Thread>();
 		this.serverSocket = new ServerSocket(port);
 
@@ -64,37 +65,41 @@ public class HTTPServer implements Runnable {
 			} 
 		}
 		
-		shutdown();
-		
 		Log.d(TAG, "server stopped");
+
 	}
 	
-	private void shutdown() {
+	private void terminate() {
+
 		for (Thread serverThread : serverThreads) {
-			Log.d(TAG, "serverThreads removal");
-			if (serverThread.isAlive())
-				serverThread.interrupt();
+			if (serverThread.isAlive()) serverThread.interrupt();
 		}
 		
 		this.terminated = true;
+
 	}
 
 	public boolean isTerminated() {
 		return this.terminated;
 	}
+	
 	/**
 	 * This method is used to stop the HTTP server
 	 */
 	public void stop() {
-		this.stopped = true;
+
+		this.stopped = true;		
+		terminate();
 
 		try {
 			serverSocket.close();
+		
 		} catch (IOException e) {	
+			// nothing todo
 		}
+		
 	}
-	
-	
+		
 	private class ServerThread extends Thread {
 		
 		private String TAG = "HttpServer";
@@ -158,14 +163,18 @@ public class HTTPServer implements Runnable {
 				e.printStackTrace();
 
 			} finally {
-				if (this.clientSocket != null)
+
+				if (this.clientSocket != null) {
 					
 					try {
 						this.clientSocket.close();
+				
 					} catch (IOException e) {
 						// TODO Auto-generated catch block
 						e.printStackTrace();
 					}
+					
+				}
 			}
 			
 			
@@ -234,22 +243,25 @@ public class HTTPServer implements Runnable {
 				
 				try {
 					sleep(20);
+				
 				} catch (InterruptedException e) {
 					
 					Log.d(TAG , "sendResponse last picture");
 					image = ((HttpCamera) context).getFinalImage();
 					
-					for(int i=0; i < 2; i++)
+					// finally send ten last pictures
+					for(int i=0; i < 10; i++)
 						imageToResponse(responseStream, image);
 					
 					break;
-					// expected from termination
+
 				}
 			}
 
 		}
 
 		private void imageToResponse(DataOutputStream responseStream, byte[] image) throws IOException {
+
 			responseStream.writeBytes("--KruscheUndPartnerPartG\r\n");
 			responseStream.writeBytes("Content-Type: image/jpeg\r\n\r\n");
 			
