@@ -6,15 +6,17 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketException;
 import java.util.Date;
 import java.util.Scanner;
-
-import de.kp.httpcamera.HttpCamera;
+import java.util.Vector;
 
 import android.content.Context;
 import android.util.Log;
+import de.kp.httpcamera.HttpCamera;
 
 public class HTTPServer implements Runnable {
+	
 
 	private static int SERVER_PORT = 8080;
 
@@ -26,37 +28,70 @@ public class HTTPServer implements Runnable {
 
 	private Context context;
 
+	private String TAG = "HttpServerThread";
+
+	private Vector<Thread> serverThreads;
+
+	private boolean terminated;
+	
 	public HTTPServer(Context context) throws IOException {		
 		this(context, SERVER_PORT);
 	}
 
 	public HTTPServer(Context context, int port) throws IOException {		
 		this.context = context;
-		serverSocket = new ServerSocket(port);
+		this.serverThreads = new Vector<Thread>();
+		this.serverSocket = new ServerSocket(port);
+
 	}
 
 	public void run() {
 
+		Log.d(TAG  , "server started");
 		while (this.stopped == false) {
 
 			try {
-
-				Socket  clientSocket = this.serverSocket.accept();
-		    	new ServerThread(clientSocket, context);
+				Socket clientSocket = this.serverSocket.accept();
+				serverThreads.add(new ServerThread(clientSocket, context));
+				
+			} catch (SocketException e) {
+				if (this.stopped) 
+					break;
+				e.printStackTrace();
 				
 			} catch (IOException e) {
 				e.printStackTrace();
 			} 
 		}
-
+		
+		shutdown();
+		
+		Log.d(TAG, "server stopped");
 	}
 	
+	private void shutdown() {
+		for (Thread serverThread : serverThreads) {
+			Log.d(TAG, "serverThreads removal");
+			if (serverThread.isAlive())
+				serverThread.interrupt();
+		}
+		
+		this.terminated = true;
+	}
 
+	public boolean isTerminated() {
+		return this.terminated;
+	}
 	/**
 	 * This method is used to stop the HTTP server
 	 */
 	public void stop() {
 		this.stopped = true;
+
+		try {
+			serverSocket.close();
+		} catch (IOException e) {	
+		}
 	}
 	
 	
@@ -104,12 +139,14 @@ public class HTTPServer implements Runnable {
 
 					if (requestFileName.equals("/")) {
 
+						Log.d(TAG , "sendDefaultResponsePage:" + requestLine);
+
 						// The default home page
 						sendDefaultResponsePage(responseStream);
-						responseStream.close();
 
 					} else {
 
+						Log.d(TAG , "sendResponse:" + requestLine);
 						sendResponse(responseStream);
 
 					}
@@ -120,7 +157,18 @@ public class HTTPServer implements Runnable {
 			} catch (Exception e) {
 				e.printStackTrace();
 
+			} finally {
+				if (this.clientSocket != null)
+					
+					try {
+						this.clientSocket.close();
+					} catch (IOException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
 			}
+			
+			
 		}
 
 		public void sendResponse(DataOutputStream responseStream) throws Exception {
@@ -131,7 +179,7 @@ public class HTTPServer implements Runnable {
 			} else {
 
 				// the camera is actually not ready; in this case, we send
-				// a standy picture
+				// a standby picture
 				sendStandByResponse(responseStream);
 			
 			}
@@ -145,7 +193,7 @@ public class HTTPServer implements Runnable {
 		 * @param statusCode
 		 * @param fileName
 		 * @param contentTypes
-		 * @throws Exception
+		 * @throws Exception 
 		 */
 		public void sendMJPEGResponse(DataOutputStream responseStream) throws Exception {
 			
@@ -170,30 +218,45 @@ public class HTTPServer implements Runnable {
 
 			responseStream.write(sb.toString().getBytes());
 
+			byte[] image;
 			while (true) {
 			
-				byte[] image = ((HttpCamera) context).getByteArray();
+				image = ((HttpCamera) context).getByteArray();
 
-				if (image == null)
+				if (image == null) {
+					Log.d(TAG , "sendResponse standby picture");
+					image = ((HttpCamera) context).getStandByImage();
+				}
+
+				Log.d(TAG , "sendResponse streaming");
+				
+				imageToResponse(responseStream, image);
+				
+				try {
+					sleep(20);
+				} catch (InterruptedException e) {
+					
+					Log.d(TAG , "sendResponse last picture");
+					image = ((HttpCamera) context).getFinalImage();
+					
+					for(int i=0; i < 2; i++)
+						imageToResponse(responseStream, image);
+					
 					break;
-				
-				else {
-				
-					Log.d(TAG , "sendResponse streaming");
-					
-					responseStream.writeBytes("--KruscheUndPartnerPartG\r\n");
-					responseStream.writeBytes("Content-Type: image/jpeg\r\n\r\n");
-					
-					responseStream.write(image);
-					
-					responseStream.writeBytes("\r\n\r\n");				
-					responseStream.flush();
+					// expected from termination
 				}
 			}
 
-			Log.d(TAG , "sendResponse stopped");
-			responseStream.close();
+		}
 
+		private void imageToResponse(DataOutputStream responseStream, byte[] image) throws IOException {
+			responseStream.writeBytes("--KruscheUndPartnerPartG\r\n");
+			responseStream.writeBytes("Content-Type: image/jpeg\r\n\r\n");
+			
+			responseStream.write(image);
+			
+			responseStream.writeBytes("\r\n\r\n");				
+			responseStream.flush();
 		}
 
 		/**
@@ -206,21 +269,13 @@ public class HTTPServer implements Runnable {
 		public void sendStandByResponse(DataOutputStream responseStream) throws Exception {
 			
 			Log.d(TAG , "sendStandByResponse started");
-			
-			// build header
-			StringBuffer sb = new StringBuffer();
 
-			sb.append("HTTP/1.0 200 OK\r\n");
-			sb.append("Server: Android\r\n");
-
-			sb.append("Content-Type: image/jpeg\r\n");
-			
 			byte[] image = ((HttpCamera) context).getStandByImage();
 			int len = (image == null) ? 0 : image.length;
-			 
-			sb.append("Content-Length: " + len + "\r\n");
+			
+			// build header
+			sendResponseHeader(responseStream, 200, "image/jpeg", len);
 
-			responseStream.write(sb.toString().getBytes());
 			responseStream.write(image);
 
 			responseStream.flush();
@@ -242,8 +297,10 @@ public class HTTPServer implements Runnable {
 		private void sendDefaultResponsePage(DataOutputStream out) throws IOException {
 
 			StringBuffer sb = new StringBuffer();
+			sb.append("<html><body>");
 			sb.append("<h1><div align='center'><b>Android Http Server Version 1.0 </b></div></h1>");
 			sb.append("<h2><div align='center'><b>Welcome to Android Webserver built in java </b></div></h2>");
+			sb.append("</body></html>");
 
 			sendResponseHeader(out, 200, "text/html", sb.length());
 
@@ -258,7 +315,7 @@ public class HTTPServer implements Runnable {
 			sb.append("HTTP/1.1 " + code + " OK\r\n" + "Date: " + new Date().toString() + "\r\n");
 
 			sb.append("Content-Type: " + contentType + "\r\n");
-			sb.append((contentLength != -1) ? "Content-Length: " + contentLength + "\r\n" : "\r\n");
+			sb.append((contentLength != -1) ? "Content-Length: " + contentLength + "\r\n\r\n" : "\r\n");
 
 			out.write(sb.toString().getBytes());
 

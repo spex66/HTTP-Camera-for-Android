@@ -37,6 +37,7 @@ public class HttpCamera extends Activity {
 	private int mPreviewHeight = Integer.valueOf(MediaConstants.HEIGHT);
 
 	private HTTPServer streamer = null;
+	private Thread streamerThread;
 
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
@@ -71,9 +72,11 @@ public class HttpCamera extends Activity {
 		 * Starts the HTTP Server
 		 */
 		try {
-			streamer = new HTTPServer(this);
-			new Thread(streamer).start();
-
+			if (streamer == null) {
+				streamer = new HTTPServer(this);
+				streamerThread = new Thread(streamer);
+				streamerThread.start();
+			}
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
@@ -81,7 +84,7 @@ public class HttpCamera extends Activity {
 		Log.d(TAG, "HttpServer started");
 
 		camera = Camera.open();
-		startPreview();
+//		startPreview();
 
 		super.onResume();
 
@@ -89,16 +92,30 @@ public class HttpCamera extends Activity {
 
 	@Override
 	public void onPause() {
+		Log.d(TAG, "onPause");
+		super.onPause();
+	}
 
+	@Override
+	public void onDestroy() {
+		Log.d(TAG, "onDestroy");
+		
 		// stop HTTP server
 		if (streamer != null)
 			streamer.stop();
 
+		while (streamer.isTerminated() == false)
+			// wait till streamer has done its shutdown procedures
+			;
+		
+		streamerThread.interrupt();
+		
 		streamer = null;
-		super.onPause();
+		streamerThread = null;
 
+		super.onDestroy();
 	}
-
+	
 	/*
 	 * SurfaceHolder callback triple
 	 */
@@ -145,7 +162,9 @@ public class HttpCamera extends Activity {
 	        camera.setPreviewCallback(null);
 			camera.release();
 			camera = null;
+			
 			inPreview = false;
+			cameraConfigured = false;
 
 			// signal to stop active MJPG streams
 			lastYuvImage = null;
@@ -239,7 +258,7 @@ public class HttpCamera extends Activity {
 				e.printStackTrace();
 				
 			}
-
+						
 			return bytes;
 
 		}
@@ -247,13 +266,20 @@ public class HttpCamera extends Activity {
 	
 	public byte[] getStandByImage() {
 		
-		// TODO
-		int standByID = 0;
+		InputStream image = this.getResources().openRawResource(R.raw.camera_standby);
+        return getImageAsByteArray(image);
+
+	}
+
+	public byte[] getFinalImage() {
 		
-		Resources resources = this.getResources();
-		InputStream image = resources.openRawResource(standByID);
-  
-        // create a buffer that has the same size as the inputstream  
+		InputStream image = this.getResources().openRawResource(R.raw.camera_final);
+        return getImageAsByteArray(image);
+
+	}
+
+	private byte[] getImageAsByteArray(InputStream image) {
+		// create a buffer that has the same size as the inputstream  
         byte[] buffer = null;
         
 		try {
@@ -283,8 +309,8 @@ public class HttpCamera extends Activity {
 		}  
 		
 		return null;
-
-	}
+	}	
+	
 	
 	public boolean isReady() {
 		return this.inPreview;

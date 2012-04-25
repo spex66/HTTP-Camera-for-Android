@@ -16,7 +16,7 @@
 
     <application
         android:icon="@drawable/icon" 
-        android:debuggable="false"
+        android:debuggable="true"
         android:label="@string/app_name" >
         <activity
             android:name="de.kp.httpcamera.HttpCamera"
